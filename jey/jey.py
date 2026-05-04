@@ -45,5 +45,3 @@ while run:
 else:
     st.info("Webcam stopped. Check the box to start.")
     camera.release()
-
-)
