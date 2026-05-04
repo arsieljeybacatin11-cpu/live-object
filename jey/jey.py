@@ -6,7 +6,7 @@ import cv2
 import numpy as np
 
 # --- PAGE SETUP ---
-st.set_page_config(page_title="AI Live Tracker", layout="wide")
+st.set_page_config(page_title=" Live Tracker", layout="wide")
 
 @st.cache_resource
 def load_model():
