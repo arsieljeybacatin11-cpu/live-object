@@ -1,2 +1,2 @@
-bgl1
-libglib2.0-0
+libg11
+libgomp1
