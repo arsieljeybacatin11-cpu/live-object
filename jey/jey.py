@@ -5,74 +5,65 @@ import av
 import cv2
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="YOLOv8 Live Live", layout="wide")
+st.set_page_config(page_title="Mobile AI Tracker", layout="centered")
 
-# Cache the model to prevent memory leaks on rerun
 @st.cache_resource
 def load_model():
-    # 'yolov8n' is the fastest; 'yolov8s' is more accurate but slower
+    # Nano model is essential for mobile/server CPU performance
     return YOLO("yolov8n.pt")
 
 model = load_model()
 
-# --- SIDEBAR UI ---
-st.sidebar.title("Configuration")
-conf_val = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05)
-# Filter specific classes (optional)
-selected_classes = st.sidebar.multiselect(
-    "Filter Objects", 
-    list(model.names.values()), 
-    default=["person", "cell phone", "laptop"]
-)
+# --- MOBILE UI CONTROLS ---
+st.title("📱 Mobile Live Detection")
 
-# --- VIDEO CALLBACK ---
+# Sidebar for mobile-friendly adjustments
+st.sidebar.header("Settings")
+confidence = st.sidebar.slider("Confidence", 0.0, 1.0, 0.4, 0.05)
+# Use the "environment" facing mode for the back camera by default
+facing_mode = st.sidebar.selectbox("Camera", ["environment", "user"], index=0)
+
 def video_frame_callback(frame):
     img = frame.to_ndarray(format="bgr24")
 
-    # 1. OPTIMIZATION: Reduce image size for inference
-    # Processing at 480p is significantly faster than 1080p
-    orig_h, orig_w = img.shape[:2]
-    input_img = cv2.resize(img, (640, 480))
+    # 1. SCALE FOR MOBILE PERFORMANCE
+    # Mobile browsers often send high-res video that chokes the server CPU.
+    # Downscaling to 480px keeps the frame rate high.
+    h, w = img.shape[:2]
+    scale = 480 / max(h, w)
+    if scale < 1:
+        img_resized = cv2.resize(img, (int(w * scale), int(h * scale)))
+    else:
+        img_resized = img
 
     # 2. INFERENCE
-    # Get class IDs for filtering
-    class_ids = [k for k, v in model.names.items() if v in selected_classes]
-    
-    results = model.track(
-        input_img,
-        persist=True,
-        conf=conf_val,
-        classes=class_ids if selected_classes else None,
-        verbose=False
-    )
+    results = model.track(img_resized, persist=True, conf=confidence, verbose=False)
 
-    # 3. ANNOTATION
-    # The .plot() method returns the image with boxes
-    annotated_img = results[0].plot()
-    
-    # Resize back to original view if needed (optional)
-    if (orig_h, orig_w) != (480, 640):
-        annotated_img = cv2.resize(annotated_img, (orig_w, orig_h))
+    # 3. ANNOTATE
+    annotated_frame = results[0].plot()
 
-    return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
+    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
-# --- WEBRTC SETUP ---
-# STUN servers help the browser and server find each other over the internet
+# --- WEBRTC CONFIGURATION ---
+# STUN servers are mandatory for mobile networks (4G/5G) to bypass NAT
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
-st.title("🚀 Real-Time Object Access")
-st.write("Using YOLOv8 for low-latency tracking.")
-
-ctx = webrtc_streamer(
-    key="live-tracking",
-    mode=WebRtcMode.SENDRECV, # Handles both sending cam and receiving processed video
+webrtc_streamer(
+    key="mobile-detection",
+    mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
     video_frame_callback=video_frame_callback,
-    media_stream_constraints={"video": True, "audio": False},
-    async_processing=True,
+    async_processing=True, # Critical for mobile to prevent video lag
+    media_stream_constraints={
+        "video": {
+            "facingMode": facing_mode, # "environment" = Back Camera, "user" = Front
+            "width": {"ideal": 640},
+            "frameRate": {"ideal": 20}
+        },
+        "audio": False
+    },
 )
 
-if ctx.state.playing:
-    st.success("Stream is active!")
+st.info("💡 Hint: If the video is slow, lower the confidence or ensure you are on Wi-Fi.")
