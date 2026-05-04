@@ -4,84 +4,73 @@ from ultralytics import YOLO
 import av
 import cv2
 import numpy as np
-from PIL import Image
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="AI Vision Hub", layout="wide")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="AI Live Tracker", layout="wide", page_icon="📱")
 
 @st.cache_resource
 def load_model():
-    # 'n' is Nano (fastest), 's' is Small (better accuracy)
+    # 'n' is the Nano version—crucial for real-time mobile/CPU performance
     return YOLO("yolov8n.pt")
 
 model = load_model()
 
-st.title("🚀 AI Live & Image Detection")
-
-# --- SHARED SETTINGS ---
-st.sidebar.header("Configuration")
+# --- SIDEBAR UI ---
+st.sidebar.title("🎮 Controls")
 conf_threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.45, 0.05)
+# Allows cellphone users to flip between front (user) and back (environment) cameras
+camera_facing = st.sidebar.selectbox("Select Camera", ["environment", "user"], index=0)
 
-# --- TABS INTERFACE ---
-tab1, tab2 = st.tabs(["🎥 Live Stream", "🖼️ Image Upload"])
+# --- VIDEO PROCESSING ---
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
 
-# --- TAB 1: LIVE STREAM ---
-with tab1:
-    st.subheader("Real-time Camera Detection")
-    
-    def video_frame_callback(frame):
-        img = frame.to_ndarray(format="bgr24")
+    # 1. PERFORMANCE DOWN-SAMPLING
+    # Mobile browsers often send 1080p+, which chokes server CPUs.
+    # We resize to YOLO's native 640px width to keep the FPS high.
+    h, w = img.shape[:2]
+    img_resized = cv2.resize(img, (640, int(640 * h / w)))
 
-        # Performance Hack: Resize for Inference
-        h, w = img.shape[:2]
-        img_resized = cv2.resize(img, (640, int(640 * h / w)))
-
-        # YOLO Tracking
-        results = model.track(img_resized, persist=True, conf=conf_threshold, verbose=False)
-        annotated_frame = results[0].plot()
-
-        return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
-
-    RTC_CONFIGURATION = RTCConfiguration(
-        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+    # 2. TRACKING (With persistence for object IDs)
+    results = model.track(
+        img_resized, 
+        persist=True, 
+        conf=conf_threshold, 
+        verbose=False
     )
 
-    webrtc_streamer(
-        key="live-detection",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTC_CONFIGURATION,
-        video_frame_callback=video_frame_callback,
-        async_processing=True,
-        media_stream_constraints={"video": True, "audio": False},
-    )
+    # 3. ANNOTATION
+    # Plotting on the smaller image is faster
+    annotated_frame = results[0].plot()
 
-# --- TAB 2: IMAGE UPLOAD ---
-with tab2:
-    st.subheader("Static Image Detection")
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
-    if uploaded_file is not None:
-        # Convert uploaded file to OpenCV format
-        image = Image.open(uploaded_file)
-        img_array = np.array(image)
-        
-        # YOLO only accepts BGR, PIL provides RGB
-        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+# --- WEBRTC CONFIG ---
+# STUN servers are MANDATORY for mobile data (4G/5G) or office networks to connect
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+)
 
-        # Run Detection
-        with st.spinner("Analyzing image..."):
-            results = model.predict(img_bgr, conf=conf_threshold)
-            
-            # Draw results
-            res_plotted = results[0].plot()
-            # Convert back to RGB for Streamlit display
-            res_rgb = cv2.cvtColor(res_plotted, cv2.COLOR_BGR2RGB)
+st.title("📱 Live Object Detection & Tracing")
+st.markdown("""
+    This app supports **Mobile Devices** and **Desktop**. 
+    * Adjust confidence in the sidebar.
+    * Switch between front and back cameras.
+""")
 
-        # Display result
-        st.image(res_rgb, caption="Detected Results", use_container_width=True)
-        
-        # Metadata display
-        if len(results[0].boxes) > 0:
-            st.success(f"Detected {len(results[0].boxes)} objects!")
-        else:
-            st.warning("No objects detected at this confidence level.")
+# The 'key' changes with camera_facing to force a clean reload when switching
+webrtc_streamer(
+    key=f"yolo-tracker-{camera_facing}",
+    mode=WebRtcMode.SENDRECV,
+    rtc_configuration=RTC_CONFIGURATION,
+    video_frame_callback=video_frame_callback,
+    async_processing=True,
+    media_stream_constraints={
+        "video": {
+            "facingMode": camera_facing,
+            "width": {"ideal": 640},
+            "frameRate": {"ideal": 30}
+        },
+        "audio": False,
+    },
+)
