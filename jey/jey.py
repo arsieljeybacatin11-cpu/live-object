@@ -1,81 +1,78 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 from ultralytics import YOLO
 import av
 import cv2
-import numpy as np
-from collections import deque
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="YOLOv8 Live Tracker", layout="wide")
+# --- PAGE CONFIG ---
+st.set_page_config(page_title="YOLOv8 Live Live", layout="wide")
 
-# Cache model to avoid reloading
+# Cache the model to prevent memory leaks on rerun
 @st.cache_resource
 def load_model():
+    # 'yolov8n' is the fastest; 'yolov8s' is more accurate but slower
     return YOLO("yolov8n.pt")
 
 model = load_model()
 
-# Sidebar for live adjustments
-st.sidebar.title("🚀 Detection Settings")
-conf_threshold = st.sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
-show_traces = st.sidebar.checkbox("Show Motion Traces", value=True)
+# --- SIDEBAR UI ---
+st.sidebar.title("Configuration")
+conf_val = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5, 0.05)
+# Filter specific classes (optional)
+selected_classes = st.sidebar.multiselect(
+    "Filter Objects", 
+    list(model.names.values()), 
+    default=["person", "cell phone", "laptop"]
+)
 
-# Store tracking history for the "Tracing" effect
-if "track_history" not in st.session_state:
-    st.session_state.track_history = {}
-
+# --- VIDEO CALLBACK ---
 def video_frame_callback(frame):
     img = frame.to_ndarray(format="bgr24")
 
-    # 1. OPTIMIZATION: Resize frame for faster processing
-    # Processing at a lower resolution significantly boosts FPS
+    # 1. OPTIMIZATION: Reduce image size for inference
+    # Processing at 480p is significantly faster than 1080p
+    orig_h, orig_w = img.shape[:2]
     input_img = cv2.resize(img, (640, 480))
 
     # 2. INFERENCE
+    # Get class IDs for filtering
+    class_ids = [k for k, v in model.names.items() if v in selected_classes]
+    
     results = model.track(
         input_img,
         persist=True,
-        conf=conf_threshold,
+        conf=conf_val,
+        classes=class_ids if selected_classes else None,
         verbose=False
     )
 
-    # 3. CUSTOM ANNOTATION & TRACING
-    annotated_frame = results[0].plot()
+    # 3. ANNOTATION
+    # The .plot() method returns the image with boxes
+    annotated_img = results[0].plot()
+    
+    # Resize back to original view if needed (optional)
+    if (orig_h, orig_w) != (480, 640):
+        annotated_img = cv2.resize(annotated_img, (orig_w, orig_h))
 
-    # Logic for Drawing Traces (Lines following the object)
-    if show_traces and results[0].boxes.id is not None:
-        boxes = results[0].boxes.xywh.cpu().numpy()
-        track_ids = results[0].boxes.id.int().cpu().tolist()
+    return av.VideoFrame.from_ndarray(annotated_img, format="bgr24")
 
-        for box, track_id in zip(boxes, track_ids):
-            x, y, w, h = box
-            
-            # Update history for this specific ID
-            if track_id not in st.session_state.track_history:
-                st.session_state.track_history[track_id] = deque(maxlen=20)
-            st.session_state.track_history[track_id].append((float(x), float(y)))
-
-            # Draw the trace line
-            points = np.array(st.session_state.track_history[track_id]).astype(np.int32).reshape((-1, 1, 2))
-            cv2.polylines(annotated_frame, [points], isClosed=False, color=(0, 255, 0), thickness=2)
-
-    return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
-
-# --- UI LAYOUT ---
-st.title("🎥 Live Object Detection & Tracing")
-st.markdown("""
-This app uses **YOLOv8** to track objects and **WebRTC** to provide a low-latency stream.
-Adjust the confidence slider in the sidebar to filter detections.
-""")
-
-webrtc_streamer(
-    key="object-detection",
-    mode=WebRtcMode.SENDRECV,
-    video_frame_callback=video_frame_callback,
-    async_processing=True,
-    rtc_configuration={
-        "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-    },
-    media_stream_constraints={"video": True, "audio": False},
+# --- WEBRTC SETUP ---
+# STUN servers help the browser and server find each other over the internet
+RTC_CONFIGURATION = RTCConfiguration(
+    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
+
+st.title("🚀 Real-Time Object Access")
+st.write("Using YOLOv8 for low-latency tracking.")
+
+ctx = webrtc_streamer(
+    key="live-tracking",
+    mode=WebRtcMode.SENDRECV, # Handles both sending cam and receiving processed video
+    rtc_configuration=RTC_CONFIGURATION,
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
+)
+
+if ctx.state.playing:
+    st.success("Stream is active!")
