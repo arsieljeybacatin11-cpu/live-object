@@ -3,67 +3,73 @@ from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
 from ultralytics import YOLO
 import av
 import cv2
+import numpy as np
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Mobile AI Tracker", layout="centered")
+# --- PAGE SETUP ---
+st.set_page_config(page_title="AI Live Tracker", layout="wide")
 
 @st.cache_resource
 def load_model():
-    # Nano model is essential for mobile/server CPU performance
+    # 'n' is the Nano version—crucial for real-time mobile performance
     return YOLO("yolov8n.pt")
 
 model = load_model()
 
-# --- MOBILE UI CONTROLS ---
-st.title("📱 Mobile Live Detection")
+# --- SIDEBAR UI ---
+st.sidebar.title("🎮 Controls")
+conf_threshold = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.45, 0.05)
+# Allows cellphone users to flip between front (user) and back (environment) cameras
+camera_facing = st.sidebar.selectbox("Select Camera", ["environment", "user"], index=0)
 
-# Sidebar for mobile-friendly adjustments
-st.sidebar.header("Settings")
-confidence = st.sidebar.slider("Confidence", 0.0, 1.0, 0.4, 0.05)
-# Use the "environment" facing mode for the back camera by default
-facing_mode = st.sidebar.selectbox("Camera", ["environment", "user"], index=0)
-
+# --- VIDEO PROCESSING ---
 def video_frame_callback(frame):
     img = frame.to_ndarray(format="bgr24")
 
-    # 1. SCALE FOR MOBILE PERFORMANCE
-    # Mobile browsers often send high-res video that chokes the server CPU.
-    # Downscaling to 480px keeps the frame rate high.
+    # 1. Performance Hack: Resize for Inference
+    # Processing 1080p on a server CPU is slow. 640px is YOLO's native size.
     h, w = img.shape[:2]
-    scale = 480 / max(h, w)
-    if scale < 1:
-        img_resized = cv2.resize(img, (int(w * scale), int(h * scale)))
-    else:
-        img_resized = img
+    img_resized = cv2.resize(img, (640, int(640 * h / w)))
 
-    # 2. INFERENCE
-    results = model.track(img_resized, persist=True, conf=confidence, verbose=False)
+    # 2. Tracking with Persistence
+    # persist=True allows the model to remember IDs across frames
+    results = model.track(
+        img_resized, 
+        persist=True, 
+        conf=conf_threshold, 
+        verbose=False
+    )
 
-    # 3. ANNOTATE
+    # 3. Annotation
+    # We plot on the resized image for speed
     annotated_frame = results[0].plot()
+    
+    # 4. (Optional) Convert back to original size if display looks blurry
+    # annotated_frame = cv2.resize(annotated_frame, (w, h))
 
     return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
-# --- WEBRTC CONFIGURATION ---
-# STUN servers are mandatory for mobile networks (4G/5G) to bypass NAT
+# --- WEBRTC CONFIG ---
+# STUN servers are mandatory for mobile data (4G/5G) to work
 RTC_CONFIGURATION = RTCConfiguration(
     {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
 
+st.title("📱 Live Object Detection & Tracing")
+st.markdown("Accessible on mobile browsers via HTTPS.")
+
+# The 'key' includes camera_facing so it resets when you switch cameras
 webrtc_streamer(
-    key="mobile-detection",
+    key=f"yolo-tracker-{camera_facing}",
     mode=WebRtcMode.SENDRECV,
     rtc_configuration=RTC_CONFIGURATION,
     video_frame_callback=video_frame_callback,
-    async_processing=True, # Critical for mobile to prevent video lag
+    async_processing=True,
     media_stream_constraints={
         "video": {
-            "facingMode": facing_mode, # "environment" = Back Camera, "user" = Front
+            "facingMode": camera_facing,
             "width": {"ideal": 640},
-            "frameRate": {"ideal": 20}
+            "frameRate": {"ideal": 30}
         },
-        "audio": False
+        "audio": False,
     },
 )
-
-st.info("💡 Hint: If the video is slow, lower the confidence or ensure you are on Wi-Fi.")
