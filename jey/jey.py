@@ -5,7 +5,7 @@ import av
 import cv2
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="AI Vision Sentry", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="object oriented detection", layout="wide", page_icon="🛡️")
 
 # Custom CSS for a "Command Center" look
 st.markdown("""
@@ -26,7 +26,7 @@ model = load_model()
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("🕹️ Control Panel")
-target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "laptop", "cup", "dog"])
+target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "laptop", "chair", "paper"])
 conf_threshold = st.sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
 
 # --- NEW FEATURE: MIRROR TOGGLE ---
@@ -62,7 +62,7 @@ def video_frame_callback(frame):
     return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
 # --- MAIN INTERFACE ---
-st.title("🛡️ AI Vision Sentry Pro")
+st.title("🛡️ object oriented detection")
 st.divider()
 
 main_col, side_col = st.columns([2, 1])
