@@ -26,7 +26,7 @@ model = load_model()
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("🕹️ Control Panel")
-target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "laptop", "chair", "paper"])
+target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "keyboard", "mouse", "laptop"])
 conf_threshold = st.sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
 
 # --- NEW FEATURE: MIRROR TOGGLE ---
@@ -62,7 +62,7 @@ def video_frame_callback(frame):
     return av.VideoFrame.from_ndarray(annotated_frame, format="bgr24")
 
 # --- MAIN INTERFACE ---
-st.title("🛡️ object oriented detection")
+st.title("🛡️ Object Oriented Detection")
 st.divider()
 
 main_col, side_col = st.columns([2, 1])
