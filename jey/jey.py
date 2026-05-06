@@ -26,7 +26,7 @@ model = load_model()
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.header("🕹️ Control Panel")
-target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "keyboard", "mouse", "laptop"])
+target_object = st.sidebar.selectbox("🚨 Alert Trigger Object", ["person", "cell phone", "keyboard", "suitcase", "laptop"])
 conf_threshold = st.sidebar.slider("Confidence", 0.0, 1.0, 0.5, 0.05)
 
 # --- NEW FEATURE: MIRROR TOGGLE ---
